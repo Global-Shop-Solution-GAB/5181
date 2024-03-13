@@ -1,0 +1,121 @@
+﻿Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+Variable.UDT.uBase.Define("ID1",String,PART)
+Variable.UDT.uBase.Define("ID2",String,LOCATION)
+Variable.uGlobal.uBase.Declare("uBase")
+
+V.Global.sDocGrpID.Declare(String)
+V.Global.sDocGrpName.Declare(String)
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+' Created on 6/8/2015
+' Created by Josh Withrow 
+' This is a "1Shot" to import links from an Excel file.
+' THIS IS ONLY INTENDED TO BE RUN AS AN INITIAL IMPORT OR AS AN APPEND
+'F.Intrinsic.Control.Try
+
+V.Local.i.Declare(Long)
+V.Local.ii.Declare(Long)
+V.Local.sBase.Declare(String)
+V.Local.iDocID.Declare(Long)
+V.Local.sDocPath.Declare(String)
+V.Local.sLockPath.Declare(String)
+V.Local.bDocExists.Declare(Boolean)
+V.Local.bLockExists.Declare(Boolean)
+V.Local.sGroupName.Declare(String)
+V.Local.sSQL.Declare(String)
+V.Local.iGroupID.Declare(Long)
+V.Local.iBaseCount.Declare(Long)
+V.Local.sExcelFile.Declare(String,"GAB_5181_DCCImport_Inventory.xls")
+V.Local.sExcelWorksheets.Declare(String)
+V.Local.sExcelRows.Declare(String)
+V.Local.sExcelColumns.Declare(String)
+V.Local.iEWS.Declare(Long)
+V.Local.iER.Declare(Long)
+V.Local.iEC.Declare(Long)
+V.Local.sPart.Declare(String)
+V.Local.sFileExtension.Declare(String)
+V.Local.fPercentComplete.Declare(Float)
+
+F.Intrinsic.String.Build("{0}{1}",V.Caller.GasDir,V.Local.sExcelFile,V.Local.sExcelFile)
+
+'Open DB Connection
+F.ODBC.Connection!Conn.OpenCompanyConnection
+
+'This is a progress indicator.  Just lets us know that something is happening.  You know, so we're not left wondering.
+F.Intrinsic.UI.InvokeWaitDialog("Reading Excel File...","Document Control Import")
+
+'Read Excel File
+F.Automation.MSExcel.ReadSpreadsheet(V.Local.sExcelFile,V.Local.sExcelFile)
+
+'F.Intrinsic.UI.InvokeWaitDialog(V.Local.sExcelFile(V.Local.ii),"Building Document Control File Links...")
+F.Intrinsic.String.Split(V.Local.sExcelFile,"&^&",V.Local.sExcelWorksheets)
+
+F.Intrinsic.Control.For(V.Local.iEWS,0,0,1)
+	F.Intrinsic.String.Split(V.Local.sExcelWorksheets(V.Local.iEWS),"$!$",V.Local.sExcelRows)
+	'Loop thru rows
+	F.Intrinsic.UI.ChangeWaitStatus("Importing...",V.Local.fPercentComplete,0,V.Local.sExcelRows.UBound)
+	F.Intrinsic.Control.For(V.Local.iER,1,V.Local.sExcelRows.UBound,1)
+	
+		F.Intrinsic.String.Split(V.Local.sExcelRows(V.Local.iER),"*!*",V.Local.sExcelColumns)
+		'For each column....
+		'0=Part, 1=Rev, 2=DocGrp, 3=UNCPath
+		Function.Intrinsic.String.GSSPartString(V.Local.sExcelColumns(0),V.Local.sExcelColumns(1),V.Local.sPart)
+		V.Local.sDocPath.Set(V.Local.sExcelColumns(3))
+		F.Intrinsic.Control.CallSub(getdocgroupid,"sDocGrpName",V.Local.sExcelColumns(2))
+		V.Local.iDocID.Set(V.Global.sDocGrpID)
+		V.Local.iDocID.Set(1)
+		V.Local.sGroupName.Set(V.Global.sDocGrpName)
+		F.Intrinsic.File.Exists(V.Local.sDocPath,V.Local.bDocExists)
+		F.Intrinsic.Control.If(V.Local.bDocExists,=,True)
+			'Add Document Control Link because this file does, indeed, exist
+			F.Intrinsic.File.GetExtensionComponent(V.Local.sDocPath,V.Local.sFileExtension)
+			
+			'Logic to delete the lock file if it still exists by the time we go through the next iteration of the loop.
+			F.Intrinsic.String.Build("{0}\adddcslink.lck",V.Caller.FilesDir,V.Local.sLockPath)
+			F.Intrinsic.File.Exists(V.Local.sLockPath,V.Local.bLockExists)
+			F.Intrinsic.Control.If(V.Local.bLockExists,=,True)
+				F.Intrinsic.File.DeleteFile(V.Local.sLockPath)
+			F.Intrinsic.Control.EndIf
+			
+			F.Global.DocumentControl.CreateReference(V.Local.sPart,30,V.Local.iDocID)
+			
+			F.Global.DocumentControl.AddDocument(V.Local.iDocID,V.Local.sDocPath,V.Global.sDocGrpName,V.Global.sDocGrpID,V.Local.sFileExtension.UCase)	
+			
+		F.Intrinsic.Control.EndIf
+
+	F.Intrinsic.Control.Next(V.Local.iER)
+F.Intrinsic.Control.Next(V.Local.iEWS)
+
+'Finished with the program, close the wait dialogue...
+F.Intrinsic.UI.CloseWaitDialog
+
+'Close the connection.  Because we opened it.  And we are good little people and we do as we should *angel*.
+F.ODBC.Connection!Conn.Close
+Program.Sub.Main.End
+
+Program.Sub.GetDocGroupID.Start
+'Retrieve GRP_ID (from table ATG_DOC_GRP) (group is defined in V.Local.GroupName)
+V.Local.sRet.Declare(String)
+V.Local.sSQL.Declare(String)
+V.Local.bIsArray.Declare(Boolean)
+F.Intrinsic.String.Concat("SELECT TOP 1 GRP_ID, GRP_NAME FROM ATG_DOC_GRP WHERE GRP_NAME='",V.Args.sDocGrpName,"'",V.Local.sSQL)
+F.ODBC.Connection!Conn.ExecuteAndReturn(V.Local.sSQL,V.Local.sRet)
+F.Intrinsic.String.Split(V.Local.sRet,"*!*",V.Local.sRet)
+F.Intrinsic.Control.SelectCase(V.Local.sRet(0))
+	F.Intrinsic.Control.CaseAny("0","")
+		V.Global.sDocGrpID.Set(-1)
+	F.Intrinsic.Control.CaseElse
+		V.Global.sDocGrpID.Set(V.Local.sRet(0))
+F.Intrinsic.Control.EndSelect
+V.Global.sDocGrpName.Set(V.Local.sRet(1))
+Program.Sub.GetDocGroupID.End
+
+Program.Sub.Comments.Start
+${$0$}$GAB_CreateLinks1Shot$}$SUPERVSR$}$10/9/2014$}$False
+${$5$}$20.1.8459.26892$}$1
+${$6$}$jwithrow$}$20230322133114437$}$D95tSYIikIvF+oq+s87EtBQePACEH+Ey8W86sZvBxWDQ3OgCxFH4gQId6IaLSXqhZZKynlLiKLRFtx/WfmBvew==
+Program.Sub.Comments.End
